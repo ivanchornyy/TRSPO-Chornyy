@@ -1,0 +1,179 @@
+import socket
+import numpy as np
+import pickle
+
+class MatrixClient:
+    def __init__(self, host="localhost", port=5000):
+        self.host = host
+        self.port = port
+
+    def generate_matrix(self, rows, cols):
+        return np.random.randint(1000, 9999, size=(rows, cols))
+
+    def start(self):
+        matrix_a = self.generate_matrix(np.random.randint(3, 10), np.random.randint(3, 10))
+        matrix_b = self.generate_matrix(matrix_a.shape[1], np.random.randint(3, 10))
+
+        print("Generated Matrix A:")
+        print(matrix_a)
+        print("\nGenerated Matrix B:")
+        print(matrix_b)
+
+        data = {
+            "matrix_a": matrix_a,
+            "matrix_b": matrix_b
+        }
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.connect((self.host, self.port))
+            serialized_data = pickle.dumps(data)
+            sock.sendall(serialized_data)  # Відправка всіх даних одразу
+
+            response_data = b""
+            while True:  # Отримання всіх даних від сервера
+                packet = sock.recv(8192)
+                if not packet:
+                    break
+                response_data += packet
+
+            response = pickle.loads(response_data)
+            if "error" in response:
+                print(f"Error: {response['error']}")
+            else:
+                result = np.array(response["result"])
+                print("\nResultant Matrix:")
+                print(result)
+
+if __name__ == "__main__":
+    role = input("Start as server or client? (s/c): ").strip().lower()
+    if role == "s":
+        server = MatrixServer()
+        server.start()
+    elif role == "c":
+        client = MatrixClient()
+        client.start()
+    else:
+        print("Invalid input. Use 's' for server or 'c' for client.")
+
+import socket
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
+class MatrixServer:
+    def __init__(self, host="localhost", port=5000):
+        self.host = host
+        self.port = port
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(5)
+        print(f"Server started on {self.host}:{self.port}")
+
+    def handle_client(self, client_socket):
+        try:
+            data = b""
+            while True:  # Отримання всіх даних від клієнта
+                packet = client_socket.recv(8192)
+                if not packet:
+                    break
+                data += packet
+
+            matrices = pickle.loads(data)
+            matrix_a, matrix_b = matrices['matrix_a'], matrices['matrix_b']
+
+            if matrix_a.shape[1] != matrix_b.shape[0]:
+                response = {"error": "Matrix dimensions do not allow multiplication."}
+            else:
+                result = self.multiply_matrices(matrix_a, matrix_b)
+                response = {"result": result.tolist()}
+
+            client_socket.sendall(pickle.dumps(response))
+        except Exception as e:
+            print(f"Error: {e}")
+            client_socket.sendall(pickle.dumps({"error": str(e)}))
+        finally:
+            client_socket.close()
+
+    def multiply_matrices(self, a, b):
+        result = np.zeros((a.shape[0], b.shape[1]))
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(self.compute_row, a, b, i, result) for i in range(a.shape[0])]
+
+            for future in futures:
+                future.result()
+
+        return result
+
+    @staticmethod
+    def compute_row(a, b, i, result):
+        for j in range(b.shape[1]):
+            result[i][j] = np.dot(a[i, :], b[:, j])
+
+    def start(self):
+        while True:
+            client_socket, addr = self.server_socket.accept()
+            print(f"Connection from {addr}")
+            client_thread = threading.Thread(target=self.handle_client, args=(client_socket,))
+            client_thread.start()
+
+class MatrixClient:
+    def __init__(self, host="localhost", port=5000):
+        self.host = host
+        self.port = port
+
+    def generate_matrix(self, rows, cols):
+        return np.random.randint(1000, 9999, size=(rows, cols))
+
+    def start(self):
+        try:
+            rows_a = int(input("Enter the number of rows for Matrix A: "))
+            cols_a = int(input("Enter the number of columns for Matrix A: "))
+            rows_b = cols_a
+            cols_b = int(input("Enter the number of columns for Matrix B: "))
+
+            matrix_a = self.generate_matrix(rows_a, cols_a)
+            matrix_b = self.generate_matrix(rows_b, cols_b)
+
+            print("Generated Matrix A:")
+            print(matrix_a)
+            print("\nGenerated Matrix B:")
+            print(matrix_b)
+
+            data = {
+                "matrix_a": matrix_a,
+                "matrix_b": matrix_b
+            }
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.connect((self.host, self.port))
+                serialized_data = pickle.dumps(data)
+                sock.sendall(serialized_data)  # Відправка всіх даних одразу
+
+                response_data = b""
+                while True:  # Отримання всіх даних від сервера
+                    packet = sock.recv(8192)
+                    if not packet:
+                        break
+                    response_data += packet
+
+                response = pickle.loads(response_data)
+                if "error" in response:
+                    print(f"Error: {response['error']}")
+                else:
+                    result = np.array(response["result"])
+                    print("\nResultant Matrix:")
+                    print(result)
+        except ValueError:
+            print("Invalid input. Please enter integer values for matrix dimensions.")
+
+if __name__ == "__main__":
+    role = input("Start as server or client? (s/c): ").strip().lower()
+    if role == "s":
+        server = MatrixServer()
+        server.start()
+    elif role == "c":
+        client = MatrixClient()
+        client.start()
+    else:
+        print("Invalid input. Use 's' for server or 'c' for client.")
+
+
